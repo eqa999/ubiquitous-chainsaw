@@ -8,7 +8,9 @@ jobs:
     timeout-minutes: 360
 
     steps:
+    # ============================================================
     # 1. تحرير الموارد
+    # ============================================================
     - name: ⚡ تعطيل الخدمات الثقيلة
       run: |
         Stop-Service -Name "SysMain" -Force -ErrorAction SilentlyContinue
@@ -16,7 +18,9 @@ jobs:
         Stop-Service -Name "WSearch" -Force -ErrorAction SilentlyContinue
         Set-Service -Name "WSearch" -StartupType Disabled -ErrorAction SilentlyContinue
 
+    # ============================================================
     # 2. إعدادات RDP
+    # ============================================================
     - name: 🚀 تفعيل RDP الاحترافي
       run: |
         Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
@@ -25,7 +29,9 @@ jobs:
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         New-NetFirewallRule -DisplayName "Allow RDP" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389
 
+    # ============================================================
     # 3. إنشاء مستخدم وكلمة مرور قوية
+    # ============================================================
     - name: 🔑 إنشاء حساب Admin
       id: credentials
       run: |
@@ -37,7 +43,9 @@ jobs:
         echo "PASSWORD=$password" >> $env:GITHUB_ENV
         echo "USERNAME=UltraAdmin" >> $env:GITHUB_ENV
 
+    # ============================================================
     # 4. عرض المواصفات (ستظهر الأنوية والرام الجديدة)
+    # ============================================================
     - name: 🖥️ عرض المواصفات
       run: |
         Write-Output "=================================================="
@@ -50,24 +58,26 @@ jobs:
         Write-Output "🟢 الرام: $([math]::Round(($RAM | Measure-Object Capacity -Sum).Sum / 1GB, 2)) جيجابايت"
         Write-Output "=================================================="
 
-    # 5. تثبيت Tailscale بطريقة مضمونة (winget + MSI احتياطي)
-    - name: 🔗 تثبيت Tailscale (طريقتين)
+    # ============================================================
+    # 5. تثبيت Tailscale (طريقتين) – مع التصحيح الكامل
+    # ============================================================
+    - name: 🔗 تثبيت Tailscale (winget أو MSI)
       id: tailscale_install
       run: |
-        # الطريقة الأولى: استخدام winget مع قبول جميع الشروط تلقائياً
+        # الطريقة الأولى: winget مع قبول كل الشروط
         Write-Output "[طريقة 1] محاولة التثبيت عبر winget..."
         winget install --id=Tailscale.Tailscale --exact --silent --accept-package-agreements --accept-source-agreements
         
-        # تحديث مسار PATH فوراً
+        # تحديث PATH فوراً
         $tailscalePath = "${env:ProgramFiles}\Tailscale"
         if (Test-Path $tailscalePath) {
             $env:Path = "$tailscalePath;$env:Path"
             [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::User)
             Write-Output "[✅] تم التثبيت عبر winget بنجاح."
         } else {
-            Write-Output "[⚠️] فشل winget أو لم يتم العثور على المسار، ننتقل للطريقة الثانية..."
+            Write-Output "[⚠️] فشل winget، ننتقل للطريقة الثانية..."
             
-            # الطريقة الثانية: تحميل MSI مباشرة (الرابط الصحيح)
+            # الطريقة الثانية: تحميل MSI مباشرة
             Write-Output "[طريقة 2] تحميل MSI من الموقع الرسمي..."
             $msiUrl = "https://pkgs.tailscale.com/stable/windows/tailscale-amd64.msi"
             $msiPath = "$env:TEMP\tailscale.msi"
@@ -77,7 +87,6 @@ jobs:
             Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msiPath`" /quiet /norestart"
             Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
             
-            # تحديث PATH مرة أخرى
             if (Test-Path $tailscalePath) {
                 $env:Path = "$tailscalePath;$env:Path"
                 [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::User)
@@ -92,13 +101,15 @@ jobs:
         Write-Output "[✔] التحقق من إصدار Tailscale:"
         tailscale --version
 
-    # 6. تسجيل الدخول بالمفتاح المضمن
+    # ============================================================
+    # 6. تسجيل الدخول إلى Tailscale (مع التصحيح)
+    # ============================================================
     - name: 🔗 تشغيل Tailscale
       id: tailscale_up
       run: |
-        # تأكيد وجود المسار في PATH
+        # إضافة المسار إلى PATH إن لم يكن موجوداً
         $tailscalePath = "${env:ProgramFiles}\Tailscale"
-        if (Test-Path $tailscalePath -and ($env:Path -notlike "*Tailscale*")) {
+        if ((Test-Path $tailscalePath) -and ($env:Path -notlike "*Tailscale*")) {
             $env:Path = "$tailscalePath;$env:Path"
         }
         
@@ -116,7 +127,9 @@ jobs:
           exit 1
         }
 
+    # ============================================================
     # 7. عرض بيانات الاتصال
+    # ============================================================
     - name: 🎯 تفاصيل الاتصال
       run: |
         $ADDRESS = $env:TAILSCALE_IP
@@ -142,7 +155,9 @@ jobs:
         Write-Output "  ⏳ المهلة: 6 ساعات (الجلسة نشطة حتى الإلغاء اليدوي)"
         Write-Output "████████████████████████████████████████████████████████████████"
 
-    # 8. إبقاء الجلسة نشطة
+    # ============================================================
+    # 8. إبقاء الجلسة نشطة (Heartbeat)
+    # ============================================================
     - name: ⏳ الحفاظ على النشاط
       run: |
         while ($true) {
@@ -150,10 +165,15 @@ jobs:
           Write-Output "[❤️] الجلسة لا تزال نشطة ..."
         }
 
-    # 9. تنظيف
+    # ============================================================
+    # 9. تنظيف (مع التصحيح)
+    # ============================================================
     - name: 🧹 تنظيف
       if: always()
       run: |
         $tailscalePath = "${env:ProgramFiles}\Tailscale"
-        if (Test-Path $tailscalePath) { $env:Path = "$tailscalePath;$env:Path" }
-        tailscale down --accept-risk=lose-ssh -ErrorAction SilentlyContinue
+        if (Test-Path $tailscalePath) { 
+            $env:Path = "$tailscalePath;$env:Path"
+            # استخدام 2>$null لتجاهل الأخطاء بدلاً من -ErrorAction
+            tailscale down --accept-risk=lose-ssh 2>$null
+        }
