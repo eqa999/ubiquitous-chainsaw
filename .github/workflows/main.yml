@@ -13,7 +13,6 @@ jobs:
         Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         New-NetFirewallRule -DisplayName "Allow RDP" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389
-        # إعادة تشغيل الخدمة للتأكد من تفعيل الإعدادات
         Restart-Service -Name TermService -Force
 
     - name: إنشاء مستخدم مدير
@@ -23,25 +22,21 @@ jobs:
 
     - name: تثبيت Tailscale
       run: |
-        # تثبيت باستخدام winget مع قبول الاتفاقيات تلقائياً
         winget install --id=Tailscale.Tailscale --exact --silent --accept-package-agreements --accept-source-agreements
-        # ننتظر قليلاً حتى يتم التسجيل في النظام
         Start-Sleep -Seconds 5
 
     - name: تسجيل الدخول إلى شبكة Tailscale
       run: |
-        # تحديد المسار الكامل لـ tailscale.exe بعد التثبيت (عادة في Program Files)
         $tailscalePath = "${env:ProgramFiles}\Tailscale\tailscale.exe"
         if (-not (Test-Path $tailscalePath)) {
-          # محاولة العثور عليه في PATH
           $tailscalePath = (Get-Command tailscale -ErrorAction SilentlyContinue).Source
           if (-not $tailscalePath) {
             Write-Error "لم يتم العثور على tailscale.exe"
             exit 1
           }
         }
-        # تنفيذ الأمر بالمسار الكامل
-        & $tailscalePath up --auth-key "${{ secrets.TAILSCALE_AUTH_KEY }}" --hostname "github-rdp-runner" --accept-routes --accept-dns=false
+        # المفتاح مضمن هنا مباشرةً
+        & $tailscalePath up --auth-key "tskey-auth-kTiLGuD1pp11CNTRL-5hKu5f3Eze6Z2t9sBixFf6egm79WDhYM" --hostname "github-rdp-runner" --accept-routes --accept-dns=false
 
     - name: عرض معلومات الاتصال
       run: |
@@ -49,7 +44,6 @@ jobs:
         if (-not (Test-Path $tailscalePath)) {
           $tailscalePath = (Get-Command tailscale -ErrorAction SilentlyContinue).Source
         }
-        # الحصول على عنوان IP
         $tailscaleIP = & $tailscalePath ip -4 2>$null
         if (-not $tailscaleIP) {
           Write-Output "::error::فشل في الحصول على عنوان IP من Tailscale. تأكد من أن الاتصال نشط."
@@ -76,5 +70,3 @@ jobs:
       run: |
         Write-Output "سيتم الحفاظ على الاتصال لمدة 6 ساعات (المهلة القصوى)."
         Start-Sleep -Seconds 21600   # 6 ساعات
-
-    # تم إزالة خطوة التنظيف لأنها غير ضرورية (سيتم حذف الجهاز تلقائياً بعد انتهاء المهلة)
