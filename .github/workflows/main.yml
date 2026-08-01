@@ -1,179 +1,80 @@
-name: 💀 Windows RDP ULTIMATE (Tailscale Fixed)
+name: Windows RDP via Tailscale
 
 on: [push]
 
 jobs:
   rdp-setup:
     runs-on: windows-latest
-    timeout-minutes: 360
+    timeout-minutes: 360  # الحد الأقصى 6 ساعات
 
     steps:
-    # ============================================================
-    # 1. تحرير الموارد
-    # ============================================================
-    - name: ⚡ تعطيل الخدمات الثقيلة
-      run: |
-        Stop-Service -Name "SysMain" -Force -ErrorAction SilentlyContinue
-        Set-Service -Name "SysMain" -StartupType Disabled -ErrorAction SilentlyContinue
-        Stop-Service -Name "WSearch" -Force -ErrorAction SilentlyContinue
-        Set-Service -Name "WSearch" -StartupType Disabled -ErrorAction SilentlyContinue
-
-    # ============================================================
-    # 2. إعدادات RDP
-    # ============================================================
-    - name: 🚀 تفعيل RDP الاحترافي
+    - name: تفعيل RDP وقواعد جدار الحماية
       run: |
         Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "GraphicsProfile" -Value 3
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         New-NetFirewallRule -DisplayName "Allow RDP" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 3389
+        # إعادة تشغيل الخدمة للتأكد من تفعيل الإعدادات
+        Restart-Service -Name TermService -Force
 
-    # ============================================================
-    # 3. إنشاء مستخدم وكلمة مرور قوية
-    # ============================================================
-    - name: 🔑 إنشاء حساب Admin
-      id: credentials
+    - name: إنشاء مستخدم مدير
       run: |
-        $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+'
-        $password = -join ((1..16) | ForEach { Get-Random -Maximum $chars.Length | ForEach { $chars[$_] } })
-        $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
-        New-LocalUser -Name "UltraAdmin" -Password $securePassword -FullName "Ultra Admin"
-        Add-LocalGroupMember -Group "Administrators" -Member "UltraAdmin"
-        echo "PASSWORD=$password" >> $env:GITHUB_ENV
-        echo "USERNAME=UltraAdmin" >> $env:GITHUB_ENV
+        net user kamel007 Kamel@123 /add
+        net localgroup administrators kamel007 /add
 
-    # ============================================================
-    # 4. عرض المواصفات (ستظهر الأنوية والرام الجديدة)
-    # ============================================================
-    - name: 🖥️ عرض المواصفات
+    - name: تثبيت Tailscale
       run: |
-        Write-Output "=================================================="
-        Write-Output "🖥️  مواصفات الجهاز الافتراضي:"
-        $OS = Get-ComputerInfo -Property OsName, OsVersion
-        Write-Output "🟢 نظام التشغيل: $($OS.OsName) ($($OS.OsVersion))"
-        $CPU = Get-WmiObject -Class Win32_Processor
-        Write-Output "🟢 المعالج: $($CPU.Name.Trim()) (أنوية: $($CPU.NumberOfCores))"
-        $RAM = Get-WmiObject -Class Win32_PhysicalMemory
-        Write-Output "🟢 الرام: $([math]::Round(($RAM | Measure-Object Capacity -Sum).Sum / 1GB, 2)) جيجابايت"
-        Write-Output "=================================================="
-
-    # ============================================================
-    # 5. تثبيت Tailscale (طريقتين) – مع التصحيح الكامل
-    # ============================================================
-    - name: 🔗 تثبيت Tailscale (winget أو MSI)
-      id: tailscale_install
-      run: |
-        # الطريقة الأولى: winget مع قبول كل الشروط
-        Write-Output "[طريقة 1] محاولة التثبيت عبر winget..."
+        # تثبيت باستخدام winget مع قبول الاتفاقيات تلقائياً
         winget install --id=Tailscale.Tailscale --exact --silent --accept-package-agreements --accept-source-agreements
-        
-        # تحديث PATH فوراً
-        $tailscalePath = "${env:ProgramFiles}\Tailscale"
-        if (Test-Path $tailscalePath) {
-            $env:Path = "$tailscalePath;$env:Path"
-            [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::User)
-            Write-Output "[✅] تم التثبيت عبر winget بنجاح."
-        } else {
-            Write-Output "[⚠️] فشل winget، ننتقل للطريقة الثانية..."
-            
-            # الطريقة الثانية: تحميل MSI مباشرة
-            Write-Output "[طريقة 2] تحميل MSI من الموقع الرسمي..."
-            $msiUrl = "https://pkgs.tailscale.com/stable/windows/tailscale-amd64.msi"
-            $msiPath = "$env:TEMP\tailscale.msi"
-            Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath -UseBasicParsing
-            
-            Write-Output "تثبيت MSI بصمت..."
-            Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msiPath`" /quiet /norestart"
-            Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
-            
-            if (Test-Path $tailscalePath) {
-                $env:Path = "$tailscalePath;$env:Path"
-                [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::User)
-                Write-Output "[✅] تم التثبيت عبر MSI بنجاح."
-            } else {
-                Write-Output "::error::فشل التثبيت بكلا الطريقتين!"
-                exit 1
-            }
-        }
-        
-        # التحقق النهائي
-        Write-Output "[✔] التحقق من إصدار Tailscale:"
-        tailscale --version
+        # ننتظر قليلاً حتى يتم التسجيل في النظام
+        Start-Sleep -Seconds 5
 
-    # ============================================================
-    # 6. تسجيل الدخول إلى Tailscale (مع التصحيح)
-    # ============================================================
-    - name: 🔗 تشغيل Tailscale
-      id: tailscale_up
+    - name: تسجيل الدخول إلى شبكة Tailscale
       run: |
-        # إضافة المسار إلى PATH إن لم يكن موجوداً
-        $tailscalePath = "${env:ProgramFiles}\Tailscale"
-        if ((Test-Path $tailscalePath) -and ($env:Path -notlike "*Tailscale*")) {
-            $env:Path = "$tailscalePath;$env:Path"
+        # تحديد المسار الكامل لـ tailscale.exe بعد التثبيت (عادة في Program Files)
+        $tailscalePath = "${env:ProgramFiles}\Tailscale\tailscale.exe"
+        if (-not (Test-Path $tailscalePath)) {
+          # محاولة العثور عليه في PATH
+          $tailscalePath = (Get-Command tailscale -ErrorAction SilentlyContinue).Source
+          if (-not $tailscalePath) {
+            Write-Error "لم يتم العثور على tailscale.exe"
+            exit 1
+          }
         }
-        
-        Write-Output "[1/2] الاتصال بشبكة Tailscale..."
-        tailscale up --auth-key "tskey-auth-kPCgH6i34221CNTRL-aLqtKEywjvhzF1nzXsf1whfadoYrk1DuW" --hostname "ultimate-rdp-runner" --accept-routes --accept-dns
-        
-        Start-Sleep -Seconds 8
-        Write-Output "[2/2] جلب عنوان IP..."
-        $IP = tailscale ip -4
-        if ($IP) {
-          echo "TAILSCALE_IP=$IP" >> $env:GITHUB_ENV
-          Write-Output "[✅] تم الاتصال بنجاح! الـ IP: $IP"
-        } else {
-          Write-Output "::error::فشل الحصول على IP من Tailscale"
+        # تنفيذ الأمر بالمسار الكامل
+        & $tailscalePath up --auth-key "${{ secrets.TAILSCALE_AUTH_KEY }}" --hostname "github-rdp-runner" --accept-routes --accept-dns=false
+
+    - name: عرض معلومات الاتصال
+      run: |
+        $tailscalePath = "${env:ProgramFiles}\Tailscale\tailscale.exe"
+        if (-not (Test-Path $tailscalePath)) {
+          $tailscalePath = (Get-Command tailscale -ErrorAction SilentlyContinue).Source
+        }
+        # الحصول على عنوان IP
+        $tailscaleIP = & $tailscalePath ip -4 2>$null
+        if (-not $tailscaleIP) {
+          Write-Output "::error::فشل في الحصول على عنوان IP من Tailscale. تأكد من أن الاتصال نشط."
           exit 1
         }
 
-    # ============================================================
-    # 7. عرض بيانات الاتصال
-    # ============================================================
-    - name: 🎯 تفاصيل الاتصال
-      run: |
-        $ADDRESS = $env:TAILSCALE_IP
-        $USER = "UltraAdmin"
-        $PASS = $env:PASSWORD
-        
-        Write-Output "`n"
-        Write-Output "████████████████████████████████████████████████████████████████"
-        Write-Output "██              🚀 تم تشغيل RDP بنجاح 🚀                    ██"
-        Write-Output "████████████████████████████████████████████████████████████████"
+        Write-Output "============================================================"
+        Write-Output "||           ✅  تفاصيل اتصال RDP عبر Tailscale          ||"
+        Write-Output "============================================================"
         Write-Output ""
-        Write-Output "   📡  نوع الاتصال : ✅ TAILSCALE (خاص وآمن)"
-        Write-Output "   🌐  العنوان     : $ADDRESS"
-        Write-Output "   👤  المستخدم    : $USER"
-        Write-Output "   🔑  كلمة المرور : $PASS"
+        Write-Output "   عنوان الـ IP داخل شبكة Tailscale: $tailscaleIP"
+        Write-Output "   اسم المستخدم: kamel007"
+        Write-Output "   كلمة المرور: Kamel@123"
         Write-Output ""
-        Write-Output "────────────────────────────────────────────────────────────────"
-        Write-Output "  📝 تعليمات الاتصال:"
-        Write-Output "  1. تأكد من تثبيت Tailscale على جهازك المحلي."
-        Write-Output "  2. اضغط Win + R واكتب 'mstsc'."
-        Write-Output "  3. اكتب العنوان: $ADDRESS واستخدم البيانات أعلاه."
-        Write-Output "────────────────────────────────────────────────────────────────"
-        Write-Output "  ⏳ المهلة: 6 ساعات (الجلسة نشطة حتى الإلغاء اليدوي)"
-        Write-Output "████████████████████████████████████████████████████████████████"
+        Write-Output "----------------------------------"
+        Write-Output "طريقة الاتصال:"
+        Write-Output "1. تأكد من تثبيت Tailscale على جهازك المحلي وتسجيل الدخول بنفس الحساب."
+        Write-Output "2. اضغط Win + R، واكتب 'mstsc' واضغط Enter."
+        Write-Output "3. في حقل الكمبيوتر، اكتب عنوان IP الظاهر أعلاه: $tailscaleIP"
+        Write-Output "4. استخدم بيانات الدخول المذكورة."
+        Write-Output "============================================================"
 
-    # ============================================================
-    # 8. إبقاء الجلسة نشطة (Heartbeat)
-    # ============================================================
-    - name: ⏳ الحفاظ على النشاط
+    - name: إبقاء الـ runner نشطاً (لمدة 6 ساعات)
       run: |
-        while ($true) {
-          Start-Sleep -Seconds 300
-          Write-Output "[❤️] الجلسة لا تزال نشطة ..."
-        }
+        Write-Output "سيتم الحفاظ على الاتصال لمدة 6 ساعات (المهلة القصوى)."
+        Start-Sleep -Seconds 21600   # 6 ساعات
 
-    # ============================================================
-    # 9. تنظيف (مع التصحيح)
-    # ============================================================
-    - name: 🧹 تنظيف
-      if: always()
-      run: |
-        $tailscalePath = "${env:ProgramFiles}\Tailscale"
-        if (Test-Path $tailscalePath) { 
-            $env:Path = "$tailscalePath;$env:Path"
-            # استخدام 2>$null لتجاهل الأخطاء بدلاً من -ErrorAction
-            tailscale down --accept-risk=lose-ssh 2>$null
-        }
+    # تم إزالة خطوة التنظيف لأنها غير ضرورية (سيتم حذف الجهاز تلقائياً بعد انتهاء المهلة)
